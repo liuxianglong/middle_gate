@@ -5,6 +5,8 @@ import (
 	_ "middle_srv/internal/packed"
 
 	"github.com/gogf/gf/v2/os/gctx"
+	//_ "middle_srv/internal/boot"
+	_ "middle_srv/internal/logic"
 )
 
 func main() {

@@ -1,0 +1,22 @@
+syntax = "proto3";
+package gate;
+option go_package = "middle_gate/app/rpc/api/gate/v1";
+
+service Gate {
+  rpc Call (CallRequest) returns (CallReply);
+}
+
+message CallRequest {
+  //@inject_tag: dc:"注册服务" v:"required"
+  string reg_service = 1; // 注册服务 v:"required" json:"reg_service"
+  //@inject_tag: dc:"服务名" v:"required"
+  string service = 2; // 服务名
+  //@inject_tag: dc:"方法名" v:"required"
+  string method = 3;
+  //@inject_tag: json:"access_token" dc:"参数，JSON 字符串"
+  string payload = 4; // 参数，JSON 字符串
+}
+
+message CallReply {
+  string payload = 1; // 返回值，JSON 字符串
+}
