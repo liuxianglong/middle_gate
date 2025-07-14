@@ -6,6 +6,7 @@ const (
 	GateSearchServiceFail        = "gate.search_service_fail"
 	GateSearchMethodFail         = "gate.search_method_fail"
 	GatePayloadParamsError       = "gate.payload_params_error"
+	GateRpcTimeout               = "gate.rpc_timeout.%s|%s|%s"
 )
 
 var gateMap = map[string]int{
@@ -14,4 +15,5 @@ var gateMap = map[string]int{
 	GateSearchServiceFail:        3,
 	GateSearchMethodFail:         4,
 	GatePayloadParamsError:       5,
+	GateRpcTimeout:               6,
 }

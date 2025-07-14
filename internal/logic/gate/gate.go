@@ -5,12 +5,14 @@ import (
 	"encoding/hex"
 	"fmt"
 	"github.com/gogf/gf/contrib/rpc/grpcx/v2"
+	"github.com/gogf/gf/v2/errors/gerror"
 	"github.com/gogf/gf/v2/frame/g"
 	"github.com/gogf/gf/v2/net/gsvc"
 	"github.com/jhump/protoreflect/dynamic"
 	"github.com/jhump/protoreflect/dynamic/grpcdynamic"
 	"github.com/jhump/protoreflect/grpcreflect"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	reflectpb "google.golang.org/grpc/reflection/grpc_reflection_v1alpha"
 	"math/rand"
 	v1 "middle_srv/app/rpc/api/gate/v1"
@@ -138,6 +140,14 @@ func (s *sGate) Call(ctx context.Context, req *v1.CallRequest) (*v1.CallReply, e
 	resp, err := stub.InvokeRpc(ctx, mDesc, reqMsg)
 
 	if err != nil {
+		codeErr := gerror.Code(err)
+		
+		if codes.Code(codeErr.Code()) == codes.DeadlineExceeded {
+			g.Log().Errorf(ctx, "InvokeRpc 请求服务超时错误,regService=%s, service=%s, method=%s,err=%v",
+				req.RegService, req.Service, req.Method, err)
+			return nil, code.CodeError.New(ctx, code.GateRpcTimeout, req.RegService, req.Service, req.Method)
+		}
+
 		g.Log().Errorf(ctx, "InvokeRpc 错误,err=%v", err)
 		return nil, err
 	}
