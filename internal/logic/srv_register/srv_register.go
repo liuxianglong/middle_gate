@@ -55,6 +55,7 @@ func (s *sSrvRegister) reg(ctx context.Context, address string) (gsvc.Registry, 
 	if err != nil {
 		return nil, err
 	}
+
 	registry, err := consul.New(consul.WithAddress(address))
 
 	if err != nil {
@@ -64,13 +65,22 @@ func (s *sSrvRegister) reg(ctx context.Context, address string) (gsvc.Registry, 
 	return registry, nil
 }
 
-func (s *sSrvRegister) GetGsvcRegistry(ctx context.Context) (gsvc.Registry, error) {
+func (s *sSrvRegister) getConsulAddressList(ctx context.Context) ([]string, error) {
 	addressVar, err := g.Cfg().Get(ctx, "consul.address")
 	if err != nil {
 		g.Log().Errorf(ctx, "获取consul.address配置错误，err=%v", err)
 		return nil, code.CodeError.New(ctx, code.CommonConsulCfgError)
 	}
 	addressList := addressVar.Strings()
+
+	return addressList, nil
+}
+func (s *sSrvRegister) GetGsvcRegistry(ctx context.Context) (gsvc.Registry, error) {
+
+	addressList, err := s.getConsulAddressList(ctx)
+	if err != nil {
+		return nil, err
+	}
 	addressLen := len(addressList)
 	if addressLen == 0 {
 		g.Log().Error(ctx, "获取consul.address配置为空")
@@ -82,7 +92,7 @@ func (s *sSrvRegister) GetGsvcRegistry(ctx context.Context) (gsvc.Registry, erro
 		registry, err = s.reg(ctx, addressList[i])
 		if err == nil {
 			regSuc = true
-			g.Log().Warningf(ctx, "服务注册地址请求成功，配置%s", addressList[i])
+			g.Log().Debugf(ctx, "服务注册地址请求成功，配置%s", addressList[i])
 			break
 		}
 

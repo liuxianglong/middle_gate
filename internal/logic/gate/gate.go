@@ -16,6 +16,7 @@ import (
 	reflectpb "google.golang.org/grpc/reflection/grpc_reflection_v1alpha"
 	"math/rand"
 	v1 "middle_srv/app/rpc/api/gate/v1"
+	"middle_srv/internal/consts"
 	"middle_srv/internal/service"
 	"middle_srv/utility/code"
 	"time"
@@ -33,27 +34,39 @@ func New() service.IGate {
 	return &sGate{}
 }
 func (s *sGate) getConn(ctx context.Context, req *v1.CallRequest) (*grpc.ClientConn, error) {
-	registry, err := service.SrvRegister().GetGsvcRegistry(ctx)
+	cacheKey := fmt.Sprintf(consts.SrvTmpHost, req.RegService)
+	sHostVar, err := g.Redis().Get(ctx, cacheKey)
 	if err != nil {
-		return nil, err
+		g.Log().Warningf(ctx, "[gate] getConn get cache key:%s err:%v", cacheKey, err)
+	}
+	sHost := sHostVar.String()
+	if sHost == "" {
+		registry, err := service.SrvRegister().GetGsvcRegistry(ctx)
+		if err != nil {
+			return nil, err
+		}
+
+		instances, err := registry.Search(ctx, gsvc.SearchInput{
+			Prefix:   "",
+			Name:     req.RegService,
+			Metadata: nil,
+		})
+		if err != nil { //搜索报错
+			g.Log().Errorf(ctx, "Search RegService, RegService=%s, err=%v", req.RegService, err)
+			return nil, code.CodeError.New(ctx, code.GateSearchRegServiceFail)
+		}
+		instanceLen := len(instances)
+		if instanceLen == 0 { //相当于没注册过实例或全下线了
+			g.Log().Errorf(ctx, "RegService len=0, RegService=%s", req.RegService)
+			return nil, code.CodeError.New(ctx, code.GateSearchRegServiceLenError)
+		}
+		sHost = instances[rand.Intn(instanceLen)].GetEndpoints().String()
+		err = g.Redis().SetEX(ctx, cacheKey, sHost, 30)
+		if err != nil {
+			g.Log().Warningf(ctx, "[gate] getConn SetEX key:%s err:%v", cacheKey, err)
+		}
 	}
 
-	instances, err := registry.Search(ctx, gsvc.SearchInput{
-		Prefix:   "",
-		Name:     req.RegService,
-		Metadata: nil,
-	})
-	if err != nil { //搜索报错
-		g.Log().Errorf(ctx, "Search RegService, RegService=%s, err=%v", req.RegService, err)
-		return nil, code.CodeError.New(ctx, code.GateSearchRegServiceFail)
-	}
-	instanceLen := len(instances)
-	if instanceLen == 0 { //相当于没注册过实例或全下线了
-		g.Log().Errorf(ctx, "RegService len=0, RegService=%s", req.RegService)
-		return nil, code.CodeError.New(ctx, code.GateSearchRegServiceLenError)
-	}
-
-	sHost := instances[rand.Intn(instanceLen)].GetEndpoints().String()
 	conn := grpcx.Client.MustNewGrpcClientConn(sHost)
 	return conn, nil
 }
@@ -73,12 +86,27 @@ func (s *sGate) verifyField(ctx context.Context, req *v1.CallRequest) error {
 }
 
 func (s *sGate) Call(ctx context.Context, req *v1.CallRequest) (*v1.CallReply, error) {
+	//cc, _ := g.Config().Get(ctx, "limited")
+	//limitedCfg := &model.LimitedCfg{}
+	//err := cc.Struct(limitedCfg)
+	//if err != nil {
+	//	return nil, err
+	//}
+	//fmt.Println(limitedCfg.Server["gate.service"].LimitNum)
 	startTime := time.Now()
 	err := s.verifyField(ctx, req)
 	if err != nil {
 		return nil, err
 	}
-
+	//限流处理
+	//@todo 可以视情况而定，限制哪块，目前测试阶段先用RegService
+	limiterKey := req.RegService
+	limiter := service.Limiter().GetLimiter(ctx, req.RegService)
+	if limiter != nil && !limiter.Allow() {
+		//拒绝
+		g.Log().Warningf(ctx, "触发限流, regService=%s", limiterKey)
+		return nil, code.CodeError.New(ctx, code.GateLimiterError)
+	}
 	payload := req.GetPayload()
 	conn, err := s.getConn(ctx, req)
 	if err != nil {
@@ -141,7 +169,7 @@ func (s *sGate) Call(ctx context.Context, req *v1.CallRequest) (*v1.CallReply, e
 
 	if err != nil {
 		codeErr := gerror.Code(err)
-		
+
 		if codes.Code(codeErr.Code()) == codes.DeadlineExceeded {
 			g.Log().Errorf(ctx, "InvokeRpc 请求服务超时错误,regService=%s, service=%s, method=%s,err=%v",
 				req.RegService, req.Service, req.Method, err)
