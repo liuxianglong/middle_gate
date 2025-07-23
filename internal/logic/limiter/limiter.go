@@ -83,6 +83,21 @@ func (s *sLimiter) Lookup(ctx context.Context) {
 				return
 			}
 			if limitedCfg.Version != s.version {
+				//1.查询是否对部分接口的限流取消
+				var toDelete []interface{}
+				s.limiterMap.Range(func(key, value interface{}) bool {
+					if k, ok := key.(string); ok {
+						if _, exists := limitedCfg.Server[k]; !exists {
+							toDelete = append(toDelete, key)
+						}
+					}
+					return true
+				})
+				//2. 执行删除
+				for _, key := range toDelete {
+					s.limiterMap.Delete(key)
+				}
+
 				for serverName, v := range limitedCfg.Server {
 					//和现有的做对比，如果没变化则不动
 					curCfg, ok := s.limiterMap.Load(serverName)
@@ -97,7 +112,7 @@ func (s *sLimiter) Lookup(ctx context.Context) {
 						OutNum:   v.OutNum,
 					}
 					s.limiterMap.Store(serverName, limitedMapData)
-					
+
 					g.Log().Debugf(ctx, "sLimiter.Lookup 更改%s成功，limit=%d，out=%d",
 						serverName, v.LimitNum, v.OutNum)
 				}
